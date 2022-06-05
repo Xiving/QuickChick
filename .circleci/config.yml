@@ -6,9 +6,7 @@ defaults: &defaults
     OPAMVERBOSE: 1
     OPAMYES: true
     TERM: xterm
-    SKIP_BUILD: |
-      coq-async-test
-      coq-http
+    SKIP_BUILD: ""
   parameters:
     coq:
       type: string
