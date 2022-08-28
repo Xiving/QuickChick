@@ -108,6 +108,7 @@ Class SizeFP {A} {G} `{Producer G} (g : G (option A)) :=
 Class SizedFP {A} {G} `{Producer G} (g :nat -> G (option A)) :=
   sizedFP : forall s s1 s2,
     (s1 <= s2)%coq_nat ->
+    (** Shouldnt this be the following?: ~ None \in semProdSize (g s2) s *)
     ~ None \in semProdSize (g s1) s -> 
     semProdSize (g s1) s <--> semProdSize (g s2) s.
 
