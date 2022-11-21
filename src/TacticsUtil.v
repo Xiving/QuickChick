@@ -36,38 +36,47 @@ Ltac2 Notation "tci" := tci_ltac ().
 
 Ltac2 print_string (s : string) := Message.print (Message.of_string s).
 
-Ltac2 print_kind (p : constr) :=
+Ltac2 kind_to_string (p : constr) :=
   match Constr.Unsafe.kind p with
-  | Constr.Unsafe.Rel _ => print_string "Rel"
-  | Constr.Unsafe.Var _ => print_string "Var"
-  | Constr.Unsafe.Meta _ => print_string "Meta"
-  | Constr.Unsafe.Evar _ _ => print_string "Evar"
-  | Constr.Unsafe.Sort _ => print_string "Sort"
-  | Constr.Unsafe.Cast _ _ _ => print_string "Case"
-  | Constr.Unsafe.Prod _ _ => print_string "Prod"
-  | Constr.Unsafe.Lambda _ _ => print_string "Lambda"
-  | Constr.Unsafe.LetIn _ _ _ => print_string "Letin"
-  | Constr.Unsafe.App _ _ => print_string "App"
-  | Constr.Unsafe.Constant _ _ => print_string "Constant"
-  | Constr.Unsafe.Ind _ _ => print_string "Ind"
-  | Constr.Unsafe.Constructor _ _ => print_string "Constructor"
-  | Constr.Unsafe.Case _ _ _ _ _ => print_string "Case"
-  | Constr.Unsafe.Fix _ _ _ _ => print_string "fix"
-  | Constr.Unsafe.CoFix _ _ _ => print_string "Cofix"
-  | Constr.Unsafe.Proj _ _ => print_string "Proj"
-  | Constr.Unsafe.Uint63 _ => print_string "Uint63"
-  | Constr.Unsafe.Float _ => print_string "Float"
-  | Constr.Unsafe.Array _ _ _ _ =>print_string "Array" 
+  | Constr.Unsafe.Rel _ => "Rel"
+  | Constr.Unsafe.Var _ => "Var"
+  | Constr.Unsafe.Meta _ =>  "Meta"
+  | Constr.Unsafe.Evar _ _ =>  "Evar"
+  | Constr.Unsafe.Sort _ =>  "Sort"
+  | Constr.Unsafe.Cast _ _ _ => "Case"
+  | Constr.Unsafe.Prod _ _ =>  "Prod"
+  | Constr.Unsafe.Lambda _ _ =>  "Lambda"
+  | Constr.Unsafe.LetIn _ _ _ =>  "Letin"
+  | Constr.Unsafe.App _ _ =>  "App"
+  | Constr.Unsafe.Constant _ _ =>  "Constant"
+  | Constr.Unsafe.Ind _ _ =>  "Ind"
+  | Constr.Unsafe.Constructor _ _ =>  "Constructor"
+  | Constr.Unsafe.Case _ _ _ _ _ =>  "Case"
+  | Constr.Unsafe.Fix _ _ _ _ =>  "fix"
+  | Constr.Unsafe.CoFix _ _ _ =>  "Cofix"
+  | Constr.Unsafe.Proj _ _ =>  "Proj"
+  | Constr.Unsafe.Uint63 _ =>  "Uint63"
+  | Constr.Unsafe.Float _ => "Float"
+  | Constr.Unsafe.Array _ _ _ _ =>"Array" 
   end.
 
+
+Ltac2 print_kind (p : constr) :=
+  print_string (kind_to_string p).
 
 Ltac2 constr_to_ident (a : Init.constr) :=
   match Constr.Unsafe.kind a with
   | Constr.Unsafe.Var i => i
-  | _ => Control.throw (Tactic_failure (Some (Message.of_string ("constr is not a var"))))
+  | _ => Control.throw (Tactic_failure (Some (Message.of_string (kind_to_string a))))
   end.
 
-Ltac2 constrs_to_idents (a : Init.constr list) := List.map constr_to_ident a.
+Ltac2 is_not_ind_constr (a : Init.constr) :=
+  match Constr.Unsafe.kind a with
+  | Constr.Unsafe.Ind _ _ => false
+  | _ => true
+  end.
+
+Ltac2 constrs_to_idents (a : Init.constr list) := List.map constr_to_ident (List.filter is_not_ind_constr a).
 
 Ltac simplstar := simpl in *.
 
