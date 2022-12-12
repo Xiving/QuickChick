@@ -36,7 +36,8 @@ val gArg : ?assumName:coq_expr ->
            unit -> arg
 
 val arg_to_var : arg -> var
-  
+val unwrap_arg : arg -> local_binder_expr
+
 val str_lst_to_string : string -> string list -> string
 
 type coq_type = 

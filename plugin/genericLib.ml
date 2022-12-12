@@ -37,7 +37,7 @@ let hole = CAst.make @@ CHole (None, Namegen.IntroAnonymous, None)
 let id_of_name n = 
   match n with 
   | Name x -> x 
-  | Anonymous -> failwith "id_of_name called with anonymous"
+  | Anonymous -> Id.of_string "anonymous"
 
 (* Everything marked "Opaque" should have its implementation be hidden in the .mli *)
 
@@ -49,7 +49,7 @@ let debug_coq_expr (c : coq_expr) : unit =
   msg_debug (pr_constr_expr env sigma c)
 
 let debug_constr env sigma (c : constr) : unit = 
-  msg_debug (Printer.safe_pr_constr_env env sigma c ++ fnl ())
+  msg_debug (str ("debug_constr: ") ++ Printer.safe_pr_constr_env env sigma c ++ fnl ())
 
 (* Non-dependent version *)
 type var = Id.t (* Opaque *)
@@ -85,6 +85,8 @@ let gInjectTyCtr s =
 let gTyCtr = qualid_to_coq_expr
 
 type arg = local_binder_expr
+let unwrap_arg (a : arg) : local_binder_expr = a
+
 let gArg ?assumName:(an=hole) ?assumType:(at=hole) ?assumImplicit:(ai=false) ?assumGeneralized:(ag=false) _ =
   let n = match an with
     | { CAst.v = CRef (qid, _); loc } -> (loc,Name (qualid_basename qid))
@@ -97,7 +99,9 @@ let gArg ?assumName:(an=hole) ?assumType:(at=hole) ?assumImplicit:(ai=false) ?as
 
 let arg_to_var (x : arg) =
   match x with
-  | CLocalAssum ([{CAst.v = id; _}], _ ,_ ) -> id_of_name id
+  | CLocalAssum ([{CAst.v = id; _}],_ ,_ ) -> let id' = id_of_name id in
+  msg_debug (str "arg_to_var: " ++ str (Id.to_string id') ++ fnl ());
+  id'
   | _ -> qcfail "arg_to_var must be named"
   
 let str_lst_to_string sep (ss : string list) = 
@@ -126,10 +130,14 @@ let ctr_to_ty_ctr x = x
 
 let num_of_ctrs (c : constructor) =
   let env = Global.env () in
-  let glob_ref = Nametab.global c in
-  let ((mind,n),_) = Globnames.destConstructRef glob_ref in
-  let mib = Environ.lookup_mind mind env in
-  Array.length (mib.mind_packets.(n).mind_consnames)
+  match Nametab.global c with
+  | ConstructRef ((mind, n), _) ->
+    let mib = Environ.lookup_mind mind env in
+    Array.length (mib.mind_packets.(n).mind_consnames)
+  | ConstRef _ -> failwith "num_of_ctrs: ConstrRef not handled"
+  | VarRef _ -> failwith "num_of_ctrs: VarRef not handled"
+  (* Crappy work-around for implicit type arguments that should be ignored *)
+  | IndRef _ -> 1
 
 module type Ord_ty_ctr_type = sig
   type t = ty_ctr 
@@ -387,10 +395,11 @@ let dep_parse_type_params arity_ctxt =
   let param_names =
     foldM (fun acc decl -> 
            match Rel.Declaration.get_name decl with
-           | Name id -> 
+           | Name id ->
               (* Actual parameters are named of type Type with some universe *)
               if is_Type (Rel.Declaration.get_type decl) then Some (id :: acc) else Some acc
-           | _ -> (* Ignore *) Some acc
+           | _ -> (* Ignore *)
+              Some acc
           ) (Some []) arity_ctxt in
   param_names
 
@@ -445,12 +454,13 @@ let parse_dependent_type i nparams ty oib arg_names =
       let ((mind, midx),_) = destInd ty in
       let mib = Environ.lookup_mind mind env in
       let id = mib.mind_packets.(midx).mind_typename in
-      (* msg_debug (str (Printf.sprintf "LOOK HERE: %s - %s - %s" (MutInd.to_string mind) (Label.to_string (MutInd.label mind)) 
+      (* msg_debug (str (Printf.sprintf "LOOK HERE: %s - %s - %s" (MutInd.to_string mind) (Label.to_string (MutInd.label mind))
                                                             (Id.to_string (Label.to_id (MutInd.label mind)))) ++ fnl ());*)
       Some (DTyCtr (qualid_of_ident id, []))
     end
     else if isConstruct ty then begin
-      let (((mind, midx), idx),_) = destConstruct ty in                               
+
+      let (((mind, midx), idx),_) = destConstruct ty in
 
       (* Lookup the inductive *)
       let env = Global.env () in
@@ -472,6 +482,7 @@ let parse_dependent_type i nparams ty oib arg_names =
     end
     else if isProd ty then begin
       let (n, t1, t2) = destProd ty in
+      msg_debug (str "IN BRANCH: isProd ty" ++ fnl ());
       (* Are the 'i's correct? *)
       aux i t1 >>= fun t1' -> 
       aux i t2 >>= fun t2' ->
@@ -553,7 +564,7 @@ let dep_dt_from_mib mib =
     let oib = mib.mind_packets.(0) in
     let ty_ctr = oib.mind_typename in 
     dep_parse_type_params oib.mind_arity_ctxt >>= fun ty_params ->
-    List.iter (fun tp -> msg_debug (str (ty_param_to_string tp) ++ fnl ())) ty_params;
+    msg_debug (str "Type params: " ++ str (String.concat ", " (List.map ty_param_to_string ty_params)) ++ fnl ());
     dep_parse_constructors (List.length ty_params) ty_params oib >>= fun ctr_reps ->
     dep_parse_type (List.length ty_params) ty_params oib.mind_arity_ctxt oib >>= fun result_ty -> 
     Some (qualid_of_ident ty_ctr, ty_params, ctr_reps, result_ty)
@@ -617,8 +628,17 @@ let gFunTyped xts (f_body : var list -> coq_expr) =
   let fun_body = f_body (List.map fst xvs) in
   mkCLambdaN binder_list fun_body 
 
-(* with Explicit/Implicit annotations *)  
+(*
+let print_args (args : Constrexpr.local_binder_expr list) =
+  let arg_to_string (arg : Constrexpr.local_binder_expr) = match arg with
+  | CLocalAssum ls bind_kind cexpr ->
+  | CLocalDef l cexpr ocexpr -> "CLocalDef"
+  | CLocalPattern cpexpr -> "CLocalPattern"
+  msg_debug (str (args) ++ fnl ())
+  *)
+(* with Explicit/Implicit annotations *)
 let gRecFunInWithArgs ?structRec:(rec_id=None) ?assumType:(typ=hole) (fs : string) args (f_body : (var * var list) -> coq_expr) (let_body : var -> coq_expr) = 
+  (* print_args args; *)
   let fv  = fresh_name fs in
   let xvs = List.map (fun (CLocalAssum ([{CAst.v = n;_}], _, _)) ->
                       match n with
@@ -632,7 +652,6 @@ let gRecFunInWithArgs ?structRec:(rec_id=None) ?assumType:(typ=hole) (fs : strin
   CAst.make @@ CLetIn (CAst.make @@ Name fv,
     CAst.make @@ CFix(CAst.make fv,[(CAst.make fv, rec_wf, args, typ, fix_body)]), None,
     let_body fv)
-             
 let gRecFunIn ?structRec:(rec_id=None) ?assumType:(typ = hole) (fs : string) (xss : string list) (f_body : (var * var list) -> coq_expr) (let_body : var -> coq_expr) =
   let xss' = List.map (fun s -> fresh_name s) xss in
   gRecFunInWithArgs ~structRec:rec_id ~assumType:typ fs (List.map (fun x -> gArg ~assumName:(gVar x) ()) xss') f_body let_body 
@@ -744,7 +763,7 @@ type matcher_pat =
 
 let rec matcher_pat_to_string = function
   | MatchU u -> var_to_string u
-  | MatchCtr (c, ms) -> constructor_to_string c ^ " " ^ str_lst_to_string " " (List.map matcher_pat_to_string ms)
+  | MatchCtr (c, ms) -> "(" ^ constructor_to_string c ^ " " ^ (str_lst_to_string " " (List.map matcher_pat_to_string ms)) ^ ")"
   | MatchParameter p -> ty_param_to_string p
 
 let construct_match c ?catch_all:(mdef=None) alts = 

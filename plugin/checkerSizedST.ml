@@ -5,6 +5,8 @@ open CoqLib
 open GenLib
 open Error
 open UnifyQC
+open Names
+open Constrexpr
 
 (* arguments to handle_branch *)
 let fail_exp (dt : coq_expr) : coq_expr = gSome dt g_false
@@ -76,16 +78,27 @@ let check_expr (n : int) (scrut : coq_expr) (left : coq_expr) (right : coq_expr)
     ]
 
 let match_inp (inp : var) (pat : matcher_pat) (left : coq_expr) (right  : coq_expr) =
+  msg_debug (str ("Match on input: ") ++ str (var_to_string inp) ++ fnl ());
   let ret v left right =
     construct_match (gVar v) ~catch_all:(Some right) [(pat, left)]
+  in
+  let rec uni_constr pat c ls =
+    let uni_constr_mapper x = 
+      match x with 
+      | MatchU _ -> true 
+      | MatchCtr (c', ls') -> uni_constr x c' ls'
+      | MatchParameter _ -> true
+    in
+    msg_debug (str (Printf.sprintf "Number of constructors is %d for first relation used in: %s" (num_of_ctrs c) (matcher_pat_to_string pat)) ++ fnl());
+    num_of_ctrs c = 1 && List.for_all uni_constr_mapper ls
   in
   let catch_case = 
     match pat with 
     | MatchCtr (c, ls) -> 
        (* Leo: This is a hack totality check for unary matches *)
-       if num_of_ctrs c = 1 && List.for_all (fun x -> match x with MatchU _ -> true | MatchCtr _ -> false) ls 
-       then None
-       else Some right
+       if uni_constr pat c ls
+       then (msg_debug (str "Goal matches single case, no pokematch needed" ++ fnl()); None)
+       else (msg_debug (str "Goal matches multiple cases" ++ fnl()); Some right)
     | _ -> failwith "Toplevel match not a constructor?"
   in 
   construct_match_with_return
@@ -101,6 +114,7 @@ let construct_generators
       (size : coq_expr)
       (full_gtyp : coq_expr)
       (gen_ctr : ty_ctr)
+      (* FIXME: includes the wrong type when deriving checker over relaition over an mutually recursive type *)
       (dep_type : dep_type)
       (ctrs : dep_ctr list)
       (rec_name : coq_expr)
@@ -145,7 +159,7 @@ let checkerSizedST
       (inputs : arg list)
       (result : Unknown.t)
       (rec_name : coq_expr) =
-  
+  msg_debug (str ("checkerSizedST (checkerSizedST.ml): ") ++ str (UM.fold (fun _ dt s -> String.concat ", " [s; (dep_type_to_string dt)]) init_tmap "") ++ fnl ());
   (* type constructor *)
   let coqTyCtr = gTyCtr gen_ctr in
 
@@ -158,6 +172,7 @@ let checkerSizedST
 
   (* The type we are generating for -- not the predicate! *)
   let full_gtyp = (gType ty_params (UM.find result init_tmap)) in
+
 
   (* The type of the derived checker *)
   let gen_type = (gOption full_gtyp) in
@@ -176,6 +191,39 @@ let checkerSizedST
               input_ranges init_umap init_tmap result))
       ]
   in
+  let lname_to_string (ln : lname) = match ln with
+    {CAst.v = id; _} -> match id with
+    | Name id' -> Id.to_string id'
+    | Anonymous -> "Anonymous"
+  in
+  let binder_kind_to_string bkind =
+    "bind_kind" 
+  in
+  let rec constr_expr_to_string cexpr = match cexpr with 
+    | { CAst.v = expr } -> match expr with
+      | CRef _ -> "CRef"
+      | CFix _ -> "CFix"
+      | CCoFix _ -> "CCoFix"
+      | CProdN _ -> "CProdN"
+      | CLambdaN _ -> "CLambdaN"
+      | CLetIn _ -> "CLetIn"
+      | CAppExpl _ -> "CAppExpl"
+      | CApp ((_, cexpr1), _) -> constr_expr_to_string cexpr1
+      | _ -> "otherwise"
+  in
+  let input_to_string (input : arg) : string =
+    match (unwrap_arg input) with
+    | CLocalAssum (lns, bkind, cexpr) ->
+        Printf.sprintf "CLocalAssum(%s, %s, %s)" 
+          (String.concat ", " (List.map lname_to_string lns))
+          (binder_kind_to_string bkind) 
+          (constr_expr_to_string cexpr)
+    | _ -> "UNKNOWN INPUT TYPE"
+  in
+
+  let inputs_to_string (inputs : arg list) : string =
+    String.concat ", " (List.map input_to_string inputs)
+  in
 
   let generator_body : coq_expr =
     (* This might cause things to break *)
@@ -193,6 +241,7 @@ let checkerSizedST
           ))
   in
 
+  msg_debug (str ("Inputs: ") ++ str (inputs_to_string inputs) ++ fnl ());
   msg_debug (fnl () ++ fnl () ++ str "`Final body produced:" ++ fnl ());
   debug_coq_expr generator_body;
   msg_debug (fnl ());

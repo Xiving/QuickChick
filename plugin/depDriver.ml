@@ -52,6 +52,7 @@ let derive_dependent
                      (ty_ctr, ty_params, ctrs, dep_type)
                      (letbinds : var list option)
                      (result : unknown) =
+  msg_debug (str ("derive_dependent (depDriver.ml): ") ++ str (UM.fold (fun _ dt s -> String.concat ", " [s; (dep_type_to_string dt)]) tmap "") ++ fnl ());
   let ctr_name = 
     match constructor with 
     | { CAst.v = CRef (r,_); _ } -> string_of_qualid r
@@ -130,8 +131,9 @@ let derive_dependent
 
   (* Fully applied predicate (parameters and constructors) *)
   let full_pred inputs =
+    msg_debug (str "full_pred inputs: " ++ str (String.concat ", " (List.map var_to_string inputs)) ++ fnl ());
     match letbinds with
-    | None -> 
+    | None ->
        gFun [Unknown.to_string result]
          (fun _ -> gApp (full_dt) (List.map gVar inputs))
     | Some letbinds ->
@@ -272,7 +274,7 @@ let derive_dependent
 
 (* Creates the initial t and u maps. *)
 let create_t_and_u_maps explicit_args dep_type actual_args : (range UM.t * dep_type UM.t) =
-
+  
   msg_debug (str ("create_t_u_maps for: " ^ dep_type_to_string dep_type) ++ fnl ());
   
   (* Local references - the maps to be generated *)
@@ -336,6 +338,7 @@ let dep_dispatch ind class_name : unit =
   | { CAst.v = CLambdaN ([CLocalAssum ([{ CAst.v = Names.Name id; CAst.loc = _loc2 }], _kind, _type)], body); _ } -> (* {CAst.v = CApp ((_flag, constructor), args) }) } -> *)
 
     let idu = Unknown.from_string (Names.Id.to_string id ^ "_") in
+    msg_debug (str ("idu: ") ++ str (Names.Id.to_string id) ++ fnl ());
      
     (* Extract (x1,x2,...) if any, P and arguments *)
     let (letbindsM, constructor, args) =
@@ -351,7 +354,7 @@ let dep_dispatch ind class_name : unit =
     (*    let (ty_ctr, ty_params, ctrs, dep_type) : (ty_ctr * (ty_param list) * (dep_ctr list) * dep_type) = *)
     let dt : (ty_ctr * (ty_param list) * (dep_ctr list) * dep_type) = 
       match coerce_reference_to_dep_dt constructor with
-      | Some dt -> msg_debug (str (dep_dt_to_string dt) ++ fnl()); dt 
+      | Some dt -> msg_debug (str ("Coerced ref to dep type: ") ++ str (dep_dt_to_string dt) ++ fnl()); dt 
       | None -> failwith "Not supported type"
     in
 
@@ -393,11 +396,10 @@ let dep_dispatch ind class_name : unit =
          
       | None -> (letbinds, umap, tmap)
     in
-
     (* Print map *)
     msg_debug (str "Initial map: " ++ fnl ());
     UM.iter (fun x r -> msg_debug (str ("Bound: " ^ (var_to_string x) ^ " to Range: " ^ (range_to_string r)) ++ fnl ())) init_umap;
-
+  
     let umap = ref init_umap in
     let tmap = ref init_tmap in
     (* Rewrite the function applications in constructors. *)
@@ -493,7 +495,7 @@ let dep_dispatch ind class_name : unit =
     (* Parse the constructor's information into the more convenient generic-lib representation *)
     let (ty_ctr, ty_params, ctrs, dep_type) : (ty_ctr * (ty_param list) * (dep_ctr list) * dep_type) =
       match coerce_reference_to_dep_dt constructor with
-      | Some dt -> msg_debug (str (dep_dt_to_string dt) ++ fnl()); dt 
+      | Some dt -> msg_debug (str "Coerced ref to dep type: " ++ str (dep_dt_to_string dt) ++ fnl()); dt 
       | None -> failwith "Not supported type"
     in
 
@@ -507,8 +509,7 @@ let dep_dispatch ind class_name : unit =
 
     let result = fresh_name "_result_bool" in
     let umap = ref (UM.add result (Ctr (injectCtr "Coq.Init.Datatypes.true", [])) umap) in
-    let tmap = ref (UM.add result (DTyCtr (ctr_to_ty_ctr (injectCtr "Coq.Init.Datatypes.bool"), [])) tmap) in
-
+    let tmap = ref (UM.add result (DTyCtr (ctr_to_ty_ctr (injectCtr "Coq.Init.Datatypes.bool"), [])) tmap) in 
 (*     let umap = ref init_umap in
     let tmap = ref init_tmap in *)
     (* Rewrite the function applications in constructors. *)
