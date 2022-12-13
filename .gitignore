@@ -52,3 +52,4 @@ __pycache__
 .lia.cache
 plugin/compat.ml
 src/ExtractionQCCompat.v
+.idea/
