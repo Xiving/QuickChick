@@ -1,3 +1,4 @@
+
 Require Import String.
 Require Import List.
 
@@ -12,6 +13,8 @@ Require Import Decidability.
 Require Import TacticsUtil.
 
 From Ltac2 Require Import Ltac2.
+
+Ltac2 msg m := Message.print (Message.of_string m).
 
 
 Section TypeClasses.
@@ -48,6 +51,7 @@ Section TypeClasses.
 
   Global Instance decSoundPos (P : Prop) {_ : Dec P} : DecOptSoundPos P.
   Proof.
+    
     intros s.
     unfold decOpt, dec_decOpt, Decidability.dec. destruct H.
     destruct dec; eauto. congruence.
@@ -188,7 +192,7 @@ Section Lemmas.
            assert (Hc : a tt = Some false).
            { eapply Hall. now left. } congruence.
   Qed.
-
+  
   Lemma destruct_match_true_l (check b : option bool):
     match check with
     | Some true => b
@@ -645,6 +649,7 @@ Ltac2 derive_mon_true (l : ident list) :=
 
 (** Soundness *)
 
+
 Ltac2 find_CorrectST_inst (_ : unit) :=
   match! goal with
   | [ |- CorrectST _ (sizedEnum (@enumSizeST ?t ?pred ?inst)) ] =>
@@ -724,8 +729,6 @@ Ltac2 rec ind_case_sound (ih : ident) (heq : ident) (ty : constr) :=
                    | ind_case_sound ih heq ty ])
   end.
 
-
-
 Ltac2 derive_sound (_ : unit) :=
   match! goal with
   | [ |- DecOptSoundPos ?e ] =>
@@ -745,6 +748,130 @@ Ltac2 derive_sound (_ : unit) :=
    end 
 end.
 
+
+
+
+(** Soundness (debug) *)
+
+Ltac2 find_CorrectST_inst' (_ : unit) :=
+  match! goal with
+  | [ |- CorrectST _ (sizedEnum (@enumSizeST ?t ?pred ?inst)) ] =>
+    eapply (@size_CorrectST $t $pred E _ _) >
+    [ tci
+    | find_size_mon_inst ()
+    | eauto 20 with typeclass_instances ]
+  end.
+
+Ltac2 handle_checker_match_sound' (ih : ident) (heq : ident) :=
+  msg "Called: handle_checker_match_sound ih heq";
+  first
+    [ (* match is the current inductive type *)
+      let heq1 := Fresh.in_goal heq in
+      let heq' := Control.hyp heq in
+      assert ($heq1 := destruct_match_true_l _ _ $heq'); clear $heq;
+      let heq1 := Control.hyp heq1 in
+      let ih := Control.hyp ih in      
+      let hdec := Fresh.in_goal (id_of_string "Hdec") in
+      destruct $heq1 as [$hdec $heq]; eapply $ih in $hdec;
+      msg "match was the current inductive type"
+    | (* match is an other inductive type *)
+      let heq1 := Fresh.in_goal heq in
+      let heq' := Control.hyp heq in
+      first [ assert ($heq1 := destruct_match_true_l _ _ $heq')
+            | assert ($heq1 := destruct_match_false_l _ _ $heq')
+            ]; clear $heq;
+      let heq1 := Control.hyp heq1 in
+      let hdec := Fresh.in_goal (id_of_string "Hdec") in
+      destruct $heq1 as [$hdec $heq];
+      (* TODO match hdec directly *) 
+      (*
+      match! goal with
+      | [ h : @decOpt ?p _ ?s = Some true |- _ ] =>
+        eapply (@sound $p _ _) in $h
+      | [ h : @decOpt ?p _ ?s = Some false |- _ ] =>
+        eapply (@sound_neg $p _ _) in $h
+      end;
+       *)
+      msg "match was another inductive type"
+    | (* match is an input *) 
+      match! goal with
+      | [h : match ?m with _ => _  end = Some true |- _ ] =>
+        msg "destruct (match ?m with _ => _ end = Some true)";
+        destruct $m; try (congruence)
+      end
+    | (* enumeratingOpt constrained *)
+      match! goal with
+      | [h : enumeratingOpt _ _ _ = Some true |- _ ] =>
+        msg "enumeratingOp constrained";
+        eapply enumeratingOpt_sound in $h > [ | find_CorrectST_inst' () ];
+        let h' := Control.hyp h in
+        destruct $h' as [? [? $h ]]
+      end
+    | (* enumeratingOpt simpl *)
+      match! goal with
+      | [h : enumeratingOpt _ _ _ = Some true |- _ ] =>
+        msg "enumeratingOpt simpl";
+        eapply enumeratingOpt_sound_simpl in $h;
+        let h' := Control.hyp h in
+        destruct $h' as [? $h]
+      end
+    ].
+
+Ltac2 rec base_case_sound' (heq : ident) (ty : constr) :=
+  msg "Called: base_case_sound' heq ty";
+  match! goal with
+  | [h : List.In _ Datatypes.nil |- _ ] => 
+    msg "destruct List.In _ []";
+    let h := Control.hyp h in destruct $h
+  | [h : List.In _ (Datatypes.cons ?g Datatypes.nil) |- _ ] =>
+    msg "destruct List.In _ [g]";
+    let h := Control.hyp h in (destruct $h > [ subst; congruence | base_case_sound' heq ty])
+  | [h : List.In _ (Datatypes.cons ?g ?gs) |- _ ] =>
+    msg "destruct List.In _ [g :: gs]";
+    let h := Control.hyp h in
+    let hdummy := Fresh.in_goal (id_of_string "Hdummy") in
+    (destruct $h > [ subst; repeat (handle_checker_match_sound' hdummy heq) ; subst; first [ eauto using $ty
+                                                                               | now (eauto 20 using $ty) ]
+                   | base_case_sound' heq ty ])
+  end.
+
+Ltac2 rec ind_case_sound' (ih : ident) (heq : ident) (ty : constr) :=
+  match! goal with
+  | [h : List.In _ Datatypes.nil |- _ ] => 
+    msg "List.In _ []";
+    let h := Control.hyp h in destruct $h
+  | [h : List.In _ (Datatypes.cons ?g ?gs) |- _ ] =>
+    msg "List.In _ [g :: gs]";
+    let h := Control.hyp h in
+    (destruct $h > [ subst; repeat (handle_checker_match_sound' ih heq); subst; first [ eauto using $ty
+                                                                                     | now (eauto 20 using $ty) ]
+                   | ind_case_sound' ih heq ty ])
+  end.
+
+Ltac2 derive_sound_debug (_ : unit) :=
+  match! goal with
+  | [ |- DecOptSoundPos ?e ] =>
+    match Constr.Unsafe.kind e with
+    | Constr.Unsafe.App ty args  =>
+      let l := constrs_to_idents (Array.to_list args) in
+      intros s; unfold decOpt; simpl_minus_methods ();
+      (* assert (Hleq' := &Hleq); revert Hleq Hleq'; *)
+      generalize &s at 1 as s';
+      revert_params l;
+      msg "induction s as [ | s IH1]";
+      ((induction s as [ | s IH1 ]);
+       intro_params l;
+       intros s' Hdec;
+       msg "eapply checker_backtrack_spec in Hdec";
+       eapply checker_backtrack_spec in Hdec;
+       destruct Hdec as [f [Hin Htrue]]) > 
+         [ msg "Calling: base_case_sound @Htrue ty ";
+           base_case_sound' @Htrue ty 
+         | msg "Calling: ind_case_sound @IH1 @Htrue ty";
+           ind_case_sound' @IH1 @Htrue ty ]
+   | _ => () 
+   end 
+end.
 
 (** Completeness *)
 
@@ -1016,6 +1143,8 @@ Ltac2 derive_complete (_ : unit ) :=
 
 
 (* Ltac tactics *)
+Ltac simpl_minus_methods := ltac2:(simpl_minus_methods ()).
 Ltac derive_mon := ltac2:(derive_mon ()).
 Ltac derive_sound := ltac2:(derive_sound ()).
+Ltac derive_sound_debug := ltac2:(derive_sound_debug ()).
 Ltac derive_complete := ltac2:(derive_complete ()).
