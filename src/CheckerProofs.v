@@ -710,7 +710,8 @@ Ltac2 rec base_case_sound (heq : ident) (ty : constr) :=
   match! goal with
   | [h : List.In _ Datatypes.nil |- _ ] => let h := Control.hyp h in destruct $h
   | [h : List.In _ (Datatypes.cons ?g Datatypes.nil) |- _ ] =>
-    let h := Control.hyp h in (destruct $h > [ subst; congruence | base_case_sound heq ty])
+     let hdummy := Fresh.in_goal (id_of_string "Hdummy") in
+     let h := Control.hyp h in (destruct $h > [ subst; try (handle_checker_match_sound hdummy heq); congruence | base_case_sound heq ty])
   | [h : List.In _ (Datatypes.cons ?g ?gs) |- _ ] =>
     let h := Control.hyp h in
     let hdummy := Fresh.in_goal (id_of_string "Hdummy") in
@@ -784,14 +785,12 @@ Ltac2 handle_checker_match_sound' (ih : ident) (heq : ident) :=
       let hdec := Fresh.in_goal (id_of_string "Hdec") in
       destruct $heq1 as [$hdec $heq];
       (* TODO match hdec directly *) 
-      (*
       match! goal with
       | [ h : @decOpt ?p _ ?s = Some true |- _ ] =>
         eapply (@sound $p _ _) in $h
       | [ h : @decOpt ?p _ ?s = Some false |- _ ] =>
         eapply (@sound_neg $p _ _) in $h
       end;
-       *)
       msg "match was another inductive type"
     | (* match is an input *) 
       match! goal with
@@ -843,8 +842,8 @@ Ltac2 rec ind_case_sound' (ih : ident) (heq : ident) (ty : constr) :=
   | [h : List.In _ (Datatypes.cons ?g ?gs) |- _ ] =>
     msg "List.In _ [g :: gs]";
     let h := Control.hyp h in
-    (destruct $h > [ subst; repeat (handle_checker_match_sound' ih heq); subst; first [ eauto using $ty
-                                                                                     | now (eauto 20 using $ty) ]
+    (destruct $h > [ subst; repeat (handle_checker_match_sound' ih heq); subst; first [ debug eauto using $ty
+                                                                                     | now (debug eauto 20 using $ty) ]
                    | ind_case_sound' ih heq ty ])
   end.
 
@@ -872,6 +871,10 @@ Ltac2 derive_sound_debug (_ : unit) :=
    | _ => () 
    end 
 end.
+
+
+
+
 
 (** Completeness *)
 
